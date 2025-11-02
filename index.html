@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Space Between Voices</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/addons/p5.sound.min.js"></script>
+<style>
+  * { 
+    font-family: 'IM'; 
+}
+
+  @font-face {
+      font-family: 'IM';
+      src: url(./font/IMFellDWPica-Regular.ttf);
+  }
+  body { 
+    margin: 0; 
+    background: rgb(20, 20, 20); 
+    overflow: hidden; 
+    }
+
+    #buttons {
+        position: fixed;
+        top: 20px;
+        right: 60px;     
+        display: flex;      
+        gap: 20px;        
+        }
+
+    button {
+        font-size: 21px;
+        color: white;
+        background: #222;
+        border: none;
+        cursor: pointer;
+        padding: 6px 14px;
+        }
+  
+    /* button {
+        /* position: fixed; 
+        right: 60px; 
+        color: white; 
+        background: #222; 
+        font-size: 16px; 
+        cursor: pointer; */
+        /* font-size: 21px;
+        color:white;
+        position: fixed;
+        top: 20px;
+        right: 60px;
+        text-decoration: none;
+        background: #222; 
+        cursor: pointer; 
+        } */ 
+
+    #start { 
+        top: 30%; 
+        }
+    #reset { 
+        top: 20px; 
+        right: 60px;
+        display: none; 
+        }
+    #clear { 
+        top: 20px; 
+        display: none; 
+        }
+    #text {
+        position: fixed;
+        top: 20px;
+        width: 100%;
+        text-align: center;
+        color: white;
+        font-size: 20px;
+        letter-spacing: 1px;
+        pointer-events: none; 
+    }
+</style>
+</head>
+<body>
+  <div id="text">‘The limits of my language mean the limits of my world'</div>
+  <div id="buttons">
+  <button id="start">Click to Start</button>
+  <button id="reset">Pause / New</button>
+  <button id="clear">Clear</button>
+</div>
+
+    <script>
+        let mic, fft;
+        let started = false;
+        let generating = false;
+
+        let maxTracks = 5;
+        let tracks = [];
+        let lineSpacing = 180;
+        let topPadding = 150;
+        let charSpacing = 25;
+        let frameInterval = 3.5;
+        let frameCountSinceLastChar = 0;
+
+        let textStr = "The limits of my language mean the limits of my world.";
+        let fixedSize = 40;
+        let ampSensitivity = 180; 
+        let microSensitivity = 10;  
+
+        let novaFont;
+
+        function preload() {
+        novaFont = loadFont('./font/IMFellDWPica-Regular.ttf');
+        }
+
+        function setup() {
+        createCanvas(windowWidth, windowHeight);
+        background(20);
+        textFont(novaFont);
+
+        const startBtn = document.getElementById('start');
+        const resetBtn = document.getElementById('reset');
+        const clearBtn = document.getElementById('clear');
+
+        startBtn.addEventListener('click', async () => {
+            await userStartAudio();
+            mic = new p5.AudioIn();
+            mic.start();
+            mic.amp(3); 
+            fft = new p5.FFT(0.9, 1024);
+            fft.setInput(mic);
+            started = true;
+            startBtn.style.display = 'none';
+            resetBtn.style.display = 'block';
+            clearBtn.style.display = 'block';
+            addNewTrack();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            if (generating) generating = false;
+            else addNewTrack();
+        });
+
+        clearBtn.addEventListener('click', () => {
+            tracks = [];
+            background(20);
+            generating = false;
+        });
+        }
+
+        function draw() {
+        if (!started || tracks.length === 0 || !generating) return;
+
+        frameCountSinceLastChar++;
+        if (frameCountSinceLastChar < frameInterval) return;
+        frameCountSinceLastChar = 0;
+
+        let t = tracks[tracks.length - 1];
+        if (!t.active) {
+            generating = false;
+            return;
+        }
+
+        let waveform = fft.waveform();
+        let index = t.textIndex % waveform.length;
+        
+
+        // let yOffsetMod = Math.sign(waveform[index]) * pow(abs(waveform[index]), 1.5) * ampSensitivity * microSensitivity;
+        let targetYMod = Math.sign(waveform[index]) * pow(abs(waveform[index]), 1.5) * ampSensitivity * microSensitivity;
+
+        t.prevYMod = t.prevYMod || 0;
+        t.prevYMod = lerp(t.prevYMod, targetYMod, 0.1);
+
+        let yOffsetMod = constrain(t.prevYMod, -50, 50);
+        // t.prevYMod;
+
+
+        let charToDraw = t.textStr[t.textIndex % t.textStr.length];
+        fill(t.color);
+        noStroke();
+        textSize(fixedSize);
+        text(charToDraw, t.xOffset, t.yOffset + yOffsetMod);
+
+        t.textIndex++;
+        t.xOffset += charSpacing;
+
+        if (t.xOffset > width) t.active = false;
+        }
+
+        function addNewTrack() {
+        let yOffset = topPadding + (tracks.length % maxTracks) * lineSpacing;
+
+        if (tracks.length >= maxTracks) tracks.shift();
+
+        tracks.push({
+            xOffset: 0,
+            yOffset: yOffset,
+            color: getSoftColor(),
+            textStr: textStr,
+            textIndex: 0,
+            active: true
+        });
+
+        generating = true;
+        }
+
+        function getSoftColor() {
+        let r = random(200, 255);
+        let g = random(200, 255);
+        let b = random(200, 255);
+        return color(r, g, b);
+        }
+
+        function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
+</body>
+</html>
